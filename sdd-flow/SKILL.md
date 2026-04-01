@@ -56,6 +56,7 @@ Every subagent MUST use these exact paths. The orchestrator MUST include the res
 
 | Artifact | Path | Created By | Read By |
 |----------|------|------------|---------|
+| **Scope decomposition** | `SDD/flow/DECOMPOSITION-[###]-[feature-name].md` | Scope assessment subagent | User (manual `/sdd-flow` per item) |
 | **Research document** | `SDD/research/RESEARCH-[###]-[feature-name].md` | Research subagent | Research review, Planning subagent |
 | **Research critical review** | `SDD/reviews/CRITICAL-RESEARCH-[feature-name]-[YYYYMMDD].md` | Research review subagent | Research fix subagent |
 | **Specification** | `SDD/requirements/SPEC-[###]-[feature-name].md` | Planning subagent | Planning review, Implementation subagent |
@@ -70,6 +71,8 @@ Every subagent MUST use these exact paths. The orchestrator MUST include the res
 
 ```
 SDD/
+├── flow/
+│   └── DECOMPOSITION-[###]-[feature-name].md
 ├── research/
 │   └── RESEARCH-[###]-[feature-name].md
 ├── requirements/
@@ -101,7 +104,7 @@ Every subagent prompt MUST include:
 
 ## Execution Modes
 
-### Step 0: Parse Input and Select Mode
+### Step 0: Scope Assessment
 
 When invoked, first:
 
@@ -110,7 +113,66 @@ When invoked, first:
 3. Derive a **kebab-case feature name** from the task
 4. Resolve all canonical identifiers (see Artifact Paths Contract)
 
-Then **ask the user which execution mode they want:**
+Then spawn a **general-purpose subagent** for scope assessment:
+
+- **Inputs:** Task description, codebase access
+- **Outputs:** Either a decomposition document or a "proceed" signal
+- **Task:** Analyze the requested feature and determine whether it can be completed in a single SDD cycle (research → planning → implementation) or whether it should be decomposed into smaller, independently deliverable chunks.
+
+#### Assessment Heuristics
+
+The subagent should consider:
+
+- **Number of distinct components or systems touched** — A feature that modifies one module is different from one that cuts across the API layer, database schema, frontend, and background jobs.
+- **Number of independent user-facing behaviors** — Multiple distinct behaviors (e.g., "add CSV export AND add scheduled reports AND add a dashboard widget") are likely separate features.
+- **Natural seams** — Can the feature be split at boundaries where each piece delivers standalone value? If so, it probably should be.
+- **Specification complexity** — Would the resulting SPEC document have so many requirements that a single implementation subagent couldn't hold them all in context?
+- **Test surface** — Would the test suite for this feature require testing multiple unrelated subsystems?
+
+This is a judgment call, not a formula. The subagent should explain its reasoning.
+
+#### If the scope is manageable (single SDD cycle)
+
+The subagent reports that the feature fits in one cycle. The orchestrator proceeds directly to **Step 1: Parse Input and Select Mode** with no pause — the user should not notice this gate for small requests.
+
+#### If the scope is too large (decomposition needed)
+
+The subagent produces a decomposition document at:
+
+```
+SDD/flow/DECOMPOSITION-[###]-[feature-name].md
+```
+
+This document contains:
+
+1. **Rationale** — Why this feature request is too large for a single SDD cycle, referencing the heuristics above.
+2. **Decomposition checklist** — An ordered list of smaller, independently deliverable features. Each item includes:
+   - A clear, self-contained task description (suitable as input to `/sdd-flow`)
+   - A brief note on what it delivers and why it's sequenced where it is
+   - Any dependencies on prior checklist items
+3. **Dependency map** — Which items must be completed before others (some may be parallelizable).
+
+The orchestrator presents the decomposition to the user:
+
+> **This feature request is too large for a single SDD cycle.**
+>
+> I've broken it into [N] independently deliverable steps:
+>
+> [Checklist summary]
+>
+> Full decomposition: `SDD/flow/DECOMPOSITION-[###]-[feature-name].md`
+>
+> Review and edit the decomposition as needed, then run `/sdd-flow` for each item when ready. Items marked with dependencies should be completed in order.
+
+The skill then **stops**. The user manually invokes `/sdd-flow <checklist item description>` for each item at their own pace.
+
+---
+
+### Step 1: Parse Input and Select Mode
+
+**Note:** This step is reached only after Step 0 determines the feature fits in a single SDD cycle.
+
+**Ask the user which execution mode they want:**
 
 > **Choose execution mode:**
 >
@@ -134,9 +196,9 @@ The orchestrator (main conversation) spawns subagents sequentially. Each subagen
 - The task description and canonical identifiers
 - Any relevant context from previous subagent results
 
-### Step 1: Research Phase
+### Step 2: Research Phase
 
-#### 1a. Research Subagent
+#### 2a. Research Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:research-start` command (embedded in prompt, model checks stripped)
@@ -150,7 +212,7 @@ Then spawn a second **general-purpose subagent** with:
 - **Outputs:** Updated RESEARCH document (if gaps found), updated `progress.md`
 - **Task:** Validate completeness against the checklist, fill any remaining gaps
 
-#### 1b. Research Critical Review Subagent
+#### 2b. Research Critical Review Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:critical-review` command (research phase section)
@@ -158,18 +220,18 @@ Spawn a **general-purpose subagent** with:
 - **Outputs:** `SDD/reviews/CRITICAL-RESEARCH-[feature-name]-[YYYYMMDD].md`
 - **Task:** Adversarial review of the research document
 
-#### 1c. Address Research Review Findings
+#### 2c. Address Research Review Findings
 
 Spawn a **general-purpose subagent** with:
 - **Inputs:** `SDD/research/RESEARCH-[###]-[feature-name].md` AND `SDD/reviews/CRITICAL-RESEARCH-[feature-name]-[YYYYMMDD].md`
 - **Outputs:** Updated `SDD/research/RESEARCH-[###]-[feature-name].md`, updated `progress.md`
 - **Task:** Resolve ALL findings from the critical review — HIGH, MEDIUM, and LOW severity. Update the RESEARCH document to fill gaps, strengthen weak evidence, add missing perspectives, and address questionable assumptions. No finding is left unresolved. After fixing, append a "Findings Addressed" section to the review document noting how each finding was resolved.
 
-#### 1d. Commit Research Artifacts
+#### 2d. Commit Research Artifacts
 
 The **orchestrator** runs the commit (not a subagent), following `/sdd:commit` conventions — no co-author attribution.
 
-#### 1e. Supervised Checkpoint (if supervised mode)
+#### 2e. Supervised Checkpoint (if supervised mode)
 
 If in **supervised mode**, pause and present a summary to the user:
 
@@ -181,15 +243,15 @@ If in **supervised mode**, pause and present a summary to the user:
 >
 > **Proceed to planning?** (y/n)
 
-Wait for user confirmation before proceeding to Step 2.
+Wait for user confirmation before proceeding to Step 3.
 
-If in **autonomous mode**, proceed directly to Step 2.
+If in **autonomous mode**, proceed directly to Step 3.
 
 ---
 
-### Step 2: Planning Phase
+### Step 3: Planning Phase
 
-#### 2a. Planning Subagent
+#### 3a. Planning Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:planning-start` command (model checks stripped)
@@ -203,7 +265,7 @@ Then spawn a second **general-purpose subagent** with:
 - **Outputs:** Updated SPEC document (if gaps found), updated `progress.md`
 - **Task:** Validate completeness against the checklist, ensure all research findings are incorporated
 
-#### 2b. Specification Critical Review Subagent
+#### 3b. Specification Critical Review Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:critical-review` command (planning phase section)
@@ -211,26 +273,26 @@ Spawn a **general-purpose subagent** with:
 - **Outputs:** `SDD/reviews/CRITICAL-SPEC-[feature-name]-[YYYYMMDD].md`
 - **Task:** Adversarial review of the specification, checking for ambiguities, untestable criteria, dropped research findings, contradictions
 
-#### 2c. Address Specification Review Findings
+#### 3c. Address Specification Review Findings
 
 Spawn a **general-purpose subagent** with:
 - **Inputs:** `SDD/requirements/SPEC-[###]-[feature-name].md` AND `SDD/reviews/CRITICAL-SPEC-[feature-name]-[YYYYMMDD].md` AND `SDD/research/RESEARCH-[###]-[feature-name].md`
 - **Outputs:** Updated `SDD/requirements/SPEC-[###]-[feature-name].md`, updated `progress.md`
 - **Task:** Resolve ALL findings — clarify ambiguous requirements, make criteria testable, add missing edge cases, resolve contradictions, incorporate dropped research findings. Append "Findings Addressed" section to the review document.
 
-#### 2d. Commit Planning Artifacts
+#### 3d. Commit Planning Artifacts
 
 The **orchestrator** runs the commit.
 
-#### 2e. Transition
+#### 3e. Transition
 
-Proceed directly to Step 3 (no checkpoint needed here — the supervised checkpoint covers the most critical decision point at research, and the second checkpoint comes before final implementation commit).
+Proceed directly to Step 4 (no checkpoint needed here — the supervised checkpoint covers the most critical decision point at research, and the second checkpoint comes before final implementation commit).
 
 ---
 
-### Step 3: Implementation Phase
+### Step 4: Implementation Phase
 
-#### 3a. Implementation Subagent
+#### 4a. Implementation Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:implementation-start` command (model checks stripped)
@@ -246,7 +308,7 @@ Spawn a **general-purpose subagent** with:
 
 **Note:** If the implementation is too large for a single subagent's context, the orchestrator should split it into multiple sequential subagents — each handling a subset of requirements. Each subsequent subagent reads the updated PROMPT document to understand what's been completed.
 
-#### 3b. Code Review Subagent
+#### 4b. Code Review Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:code-review` command
@@ -254,14 +316,14 @@ Spawn a **general-purpose subagent** with:
 - **Outputs:** `SDD/reviews/REVIEW-[###]-[feature-name]-[YYYYMMDD].md`
 - **Task:** Specification-driven code review (70% spec alignment, 20% context engineering, 10% test alignment)
 
-#### 3c. Address Code Review Findings
+#### 4c. Address Code Review Findings
 
 Spawn a **general-purpose subagent** with:
 - **Inputs:** `SDD/reviews/REVIEW-[###]-[feature-name]-[YYYYMMDD].md`, `SDD/requirements/SPEC-[###]-[feature-name].md`, the implemented code files
 - **Outputs:** Updated code and tests, updated PROMPT document, "Findings Addressed" appended to review document
 - **Task:** Fix ALL findings until the implementation meets APPROVED status. Resolve specification misalignment, missing edge/failure handling, test gaps, and all other issues.
 
-#### 3d. Implementation Critical Review Subagent
+#### 4d. Implementation Critical Review Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:critical-review` command (implementation phase section)
@@ -269,14 +331,14 @@ Spawn a **general-purpose subagent** with:
 - **Outputs:** `SDD/reviews/CRITICAL-IMPL-[feature-name]-[YYYYMMDD].md`
 - **Task:** Adversarial review of the implementation
 
-#### 3e. Address Implementation Review Findings
+#### 4e. Address Implementation Review Findings
 
 Spawn a **general-purpose subagent** with:
 - **Inputs:** `SDD/reviews/CRITICAL-IMPL-[feature-name]-[YYYYMMDD].md`, `SDD/requirements/SPEC-[###]-[feature-name].md`, implemented code files
 - **Outputs:** Updated code and tests, updated PROMPT document, "Findings Addressed" appended to review document
 - **Task:** Resolve ALL findings — fix specification deviations, security vulnerabilities, silent failures, missing test coverage, and every other issue regardless of severity.
 
-#### 3f. Implementation Completion Subagent
+#### 4f. Implementation Completion Subagent
 
 Spawn a **general-purpose subagent** with:
 - **Instructions from:** `/sdd:implementation-complete` command (model checks stripped)
@@ -284,7 +346,7 @@ Spawn a **general-purpose subagent** with:
 - **Outputs:** Updated PROMPT document, updated SPEC document, `SDD/prompts/implementation-complete/IMPLEMENTATION-SUMMARY-[###]-[YYYY-MM-DD_HH-MM-SS].md`, updated `progress.md`
 - **Task:** Finalize all documentation, validate all requirements are met, create implementation summary
 
-#### 3g. Supervised Checkpoint (if supervised mode)
+#### 4g. Supervised Checkpoint (if supervised mode)
 
 If in **supervised mode**, pause and present a summary to the user:
 
@@ -303,11 +365,11 @@ Wait for user confirmation before committing.
 
 If in **autonomous mode**, proceed directly to commit.
 
-#### 3h. Commit Implementation
+#### 4h. Commit Implementation
 
 The **orchestrator** runs the commit — all implementation code, tests, reviews, and SDD artifacts. No co-author attribution.
 
-#### 3i. Completion Announcement
+#### 4i. Completion Announcement
 
 > Implementation complete! All requirements from SPEC-[###] have been implemented, reviewed, and tested.
 > All artifacts committed. Feature is ready for deployment.
@@ -326,12 +388,12 @@ When the user runs `/sdd-flow continue`:
 ### Phase Detection Priority
 
 - If "Implementation Phase - COMPLETE" → Done, show final summary
-- If implementation is active → Resume the appropriate sub-step (3a-3h)
-- If "Planning Phase - COMPLETE" → Start Step 3 (implementation)
-- If planning is active → Resume the appropriate sub-step (2a-2e)
-- If "Research Phase - COMPLETE" → Start Step 2 (planning)
-- If research is active → Resume the appropriate sub-step (1a-1e)
-- If no phase info → Start from Step 1 (research)
+- If implementation is active → Resume the appropriate sub-step (4a-4h)
+- If "Planning Phase - COMPLETE" → Start Step 4 (implementation)
+- If planning is active → Resume the appropriate sub-step (3a-3e)
+- If "Research Phase - COMPLETE" → Start Step 3 (planning)
+- If research is active → Resume the appropriate sub-step (2a-2e)
+- If no phase info → Start from Step 0 (scope assessment)
 
 ## Subagent Guidelines
 

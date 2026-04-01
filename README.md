@@ -49,6 +49,12 @@ AI coding assistants are powerful, but they often jump straight to implementatio
 
 SDD Flow spawns a sequence of subagents, each handling one step:
 
+**0. Scope Assessment**
+- Analyzes whether the feature request fits in a single SDD cycle
+- If too large, produces a decomposition checklist of smaller, independently deliverable features
+- The user then runs `/sdd-flow` for each checklist item at their own pace
+- Small requests pass through this gate transparently
+
 **1. Research Phase**
 - A research subagent investigates the codebase, dependencies, and constraints
 - A completeness subagent validates the research and fills gaps
@@ -101,6 +107,7 @@ SDD Flow produces structured artifacts in an `SDD/` directory:
 
 ```
 SDD/
+├── flow/              # Scope decomposition documents
 ├── research/          # Research documents
 ├── requirements/      # Specifications (SPEC files)
 ├── prompts/           # Implementation tracking and summaries
