@@ -3,6 +3,9 @@ name: improve-claude-md
 description: Audit and optimize CLAUDE.md (or AGENTS.md) and CLAUDE.local.md files by removing discoverable content and focusing on preferences, behavioral nudges, and corrections. Reduces token cost and improves agent performance.
 ---
 
+> **⚠️ ARCHIVED — This skill has moved.**
+> This standalone skill is no longer maintained. It is now part of the [agent-engineering plugin](https://github.com/pablooliva/claude-plugins/tree/main/agent-engineering) — please install the plugin to get the latest version and ongoing updates.
+
 # Improve CLAUDE.md
 
 Audit and optimize CLAUDE.md (or AGENTS.md) and CLAUDE.local.md files to maximize agent performance and minimize token waste.

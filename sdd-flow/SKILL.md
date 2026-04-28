@@ -1,3 +1,6 @@
+> **⚠️ ARCHIVED — This skill has moved.**
+> This standalone skill is no longer maintained. It is now part of the [agent-engineering plugin](https://github.com/pablooliva/claude-plugins/tree/main/agent-engineering) — please install the plugin to get the latest version and ongoing updates.
+
 # SDD Flow — End-to-End Feature Development
 
 Takes a task or software requirement and drives it through the complete SDD (Specification-Driven Development) lifecycle: **Research → Planning → Implementation → Done**.
